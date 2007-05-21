@@ -4,3 +4,5 @@ Revision history for Perl extension Device::Jtag::USB::FTCJTAG.
 	- original version; created by h2xs 1.23 with options
 		-Xn Device::Jtag::USB::FTCJTAG
 
+0.02  Sun May 21 08:56:00 2007
+	- removed autoloader from FTCJTAG.pm file

@@ -5,7 +5,6 @@ use strict;
 use warnings;
 
 require Exporter;
-use AutoLoader qw(AUTOLOAD);
 
 our @ISA = qw(Exporter);
 
@@ -26,7 +25,7 @@ our @EXPORT = qw(
 
 );
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 
 # Preloaded methods go here.
@@ -438,8 +437,6 @@ sub genclks {
   die("Unable to generate clocks\n") if ($ftc_status);
   return;
 }
-
-# Autoload methods go after =cut, and are processed by the autosplit program.
 
 1;
 __END__
