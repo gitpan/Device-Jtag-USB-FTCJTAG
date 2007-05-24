@@ -1,4 +1,4 @@
-Device-Jtag-USB-FTCJTAG version 0.02
+Device-Jtag-USB-FTCJTAG version 0.03
 ====================================
 
 Device::Jtag::USB::FTCJTAG - Perl extension for communicating with JTAG devices
