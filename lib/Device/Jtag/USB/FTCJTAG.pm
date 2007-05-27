@@ -25,7 +25,7 @@ our @EXPORT = qw(
 
 );
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 
 # Preloaded methods go here.
@@ -556,9 +556,17 @@ Add autodetection of scan chain devices and auto-assignment of IDCODE value and 
 
 =over
 
-=item * 0.01 - First release
+=item * 0.04  Sun May 27 2007
+Changed to .tar.gz archive type.
 
-Basic first release. By default, assumes devices on JTAG scan chain are (0) Xilinx XC3S1200E FPGA and (1) Xilinx XCF04S Flash PROM.
+=item * 0.03  Fri May 25 2007
+Fixed prereqs in Makefile.PL
+
+=item * 0.02  Sun May 21 2007
+Removed autoloader from FTCJTAG.pm file
+
+=item * 0.01  Sun May 20 2007
+Original version. By default, assumes devices on JTAG scan chain are (0) Xilinx XC3S1200E FPGA and (1) Xilinx XCF04S Flash PROM.
 
 =back
 
