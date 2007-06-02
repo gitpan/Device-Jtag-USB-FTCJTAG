@@ -1,15 +1,18 @@
 Revision history for Perl extension Device::Jtag::USB::FTCJTAG.
 
-0.04  Sun May 27 13:41:00 2007
-    - changed to .tar.gz archive type.
-
-0.03  Fri May 25 20:15:00 2007
-    - fixed prereqs in Makefile.PL
+0.01  Sun May 20 09:24:21 2007
+    - original version; created by h2xs 1.23 with options
+        -Xn Device::Jtag::USB::FTCJTAG
 
 0.02  Sun May 21 08:56:00 2007
     - removed autoloader from FTCJTAG.pm file
 
-0.01  Sun May 20 09:24:21 2007
-    - original version; created by h2xs 1.23 with options
-        -Xn Device::Jtag::USB::FTCJTAG
+0.03  Fri May 25 20:15:00 2007
+    - fixed prereqs in Makefile.PL
+
+0.04  Sun May 27 13:41:00 2007
+    - changed to .tar.gz archive type.
+
+0.05  Fri June 6 2007
+    - commented out "use 5.008008" from Makefile.PL and FTCJTAG.pm
 

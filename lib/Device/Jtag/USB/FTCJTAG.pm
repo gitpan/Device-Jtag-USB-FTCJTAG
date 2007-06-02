@@ -1,6 +1,6 @@
 package Device::Jtag::USB::FTCJTAG;
 
-use 5.008008;
+#use 5.008008;
 use strict;
 use warnings;
 
@@ -25,7 +25,7 @@ our @EXPORT = qw(
 
 );
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 
 # Preloaded methods go here.
