@@ -25,12 +25,17 @@ our @EXPORT = qw(
 
 );
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 
 # Preloaded methods go here.
 
 use Win32::API;
+
+###################################################################################################
+# Set debug verbosity level
+###################################################################################################
+my $DEBUG = 1;
 
 ###################################################################################################
 # Define FTC_STATUS return values
@@ -93,8 +98,11 @@ use constant DRSHIFT => 0;
 ##################################################################################################
 sub new {
   my $self = {};
-
+  
+  debug('new', 1, "Debug level set to $DEBUG");
+  
   # Import API functions and assign to function handles
+  debug('new', 1, "Importing APIs");
   foreach my $href (
     {perl_name => 'get_ndev', c_name => 'JTAG_GetNumDevices'      , inputs => 'P'     , outputs => 'N'},
     {perl_name => 'open'    , c_name => 'JTAG_Open'               , inputs => 'P'     , outputs => 'N'},
@@ -106,44 +114,30 @@ sub new {
     {perl_name => 'set_gpio', c_name => 'JTAG_SetGPIOs'           , inputs => 'NNPNP' , outputs => 'N'}) {
 
     $self->{fh}->{$href->{perl_name}} = Win32::API->new('FTCJTAG', $href->{c_name}, $href->{inputs}, $href->{outputs});
-    if(not defined $self->{fh}->{$href->{perl_name}}) {
-      die(sprintf("Unable to import API %s: %s\n", $href->{c_name}, $!));
-    }
+    die(debug('new', 0, sprintf("Unable to import API %s: %s", $href->{c_name}, $!))) if(not defined $self->{fh}->{$href->{perl_name}});
   }
-
-  # Define JTAG scan chain device information
-  $self->{di} = [
-    {name   => 'XC3S1200E FPGA',         # device 0 name
-     idregx => '^.1c2e093',              # device 0 idcode reg expression
-     ircmds => {idcode => '001001',      # device 0 instructions
-                user1  => '000010',
-                user2  => '000011',
-                bypass => '111111'}},
-
-    {name   => 'XCF0XS Platform Flash',  # device 1 name
-     idregx => '^.504.093',              # device 1 idcode reg expression
-     ircmds => {idcode => '11111110',    # device 1 instructions
-                bypass => '11111111'}}
-  ];
 
 
   # Open JTAG key
+  debug('new', 1, "Opening JTAGKey");
   my $ftc_handle_lw = ' 'x4; # pre-allocate 4 bytes to long word
   my $ftc_status = $self->{fh}->{open}->Call($ftc_handle_lw);
-  die(sprintf("ERROR : %s : %s\n", 'Unable to open JTAGkey', $ftc_status_type_aref->[$ftc_status])) if ($ftc_status);
+  die(debug('new', 0, sprintf("Unable to open JTAGKey : %s", $ftc_status_type_aref->[$ftc_status]))) if ($ftc_status);
 
   # Assign JTAGKey device handle
   $self->{key} = unpack('L', $ftc_handle_lw); # unpack long word
 
   # Initialize JTAGKey to 6MHz transfer rate
+  debug('new', 1, "Setting JTAGKey transfer rate");
   $ftc_status = $self->{fh}->{init}->Call($self->{key},0);
-  die(sprintf("ERROR : %s : %s\n", 'Unable to initialize JTAGkey', $ftc_status_type_aref->[$ftc_status])) if ($ftc_status);
+  die(debug('new', 0, sprintf("Unable to initialize JTAGkey : %s", $ftc_status_type_aref->[$ftc_status]))) if ($ftc_status);
 
-  # Read JTAGKey GPIOs
+  # Read JTAGKey GPIOs to see that VREF is powered
+  debug('new', 1, "Checking JTAGKey power");
   my $gpio_lo_lw   = ' 'x16; # pre-allocate 4x4 long words
   my $gpio_hi_lw   = ' 'x16; # pre-allocate 4x4 long words
   $ftc_status      = $self->{fh}->{get_gpio}->Call($self->{key}, 1, $gpio_lo_lw, 1, $gpio_hi_lw);
-  die(sprintf("ERROR : %s : %s\n", 'Unable to read JTAGkey GPIOs', $ftc_status_type_aref->[$ftc_status])) if ($ftc_status);
+  die(debug('new', 0, sprintf("Unable to read JTAGkey GPIOs : %s", $ftc_status_type_aref->[$ftc_status]))) if ($ftc_status);
   my $gpio_lo_aref = [unpack('L4', $gpio_lo_lw)]; # unpack 4 long words into array ref
   my $gpio_hi_aref = [unpack('L4', $gpio_hi_lw)]; # unpack 4 long words into array ref
 
@@ -152,73 +146,133 @@ sub new {
   #}
 
   # Check JTAGKey VREF (GPIO LO bit 1 low if powered)
-  die("ERROR : VREF not powered\n") if ($gpio_lo_aref->[1] eq 1);
+  die(debug('new', 0, "JTAGKey VREF not powered")) if ($gpio_lo_aref->[1] eq 1);
 
   # Set JTAGKey GPIO controlling output enable
+  debug('new', 1, "Setting JTAGKey output enable");
   my $gpiol_data = (0,0,0,0,0,0,0,1); # this does not make sense, but happens to work
   my $gpioh_data = (0,0,0,0,0,0,0,0);
-
   $ftc_status = $self->{fh}->{set_gpio}->Call($self->{key}, 1, pack('L8',$gpiol_data), 0, pack('L8',$gpioh_data));
-  die(sprintf("ERROR : %s : %s\n", 'Unable to set JTAGkey GPIOs', $ftc_status_type_aref->[$ftc_status])) if ($ftc_status);
+  die(debug('new', 0, sprintf("[FTCJTAG.PM] Unable to set JTAGkey GPIOs : %s", $ftc_status_type_aref->[$ftc_status]))) if ($ftc_status);
 
   # Check JTAGKey output enable (GPIO LO bit 0 low)
   #die("ERROR: JTAG_OE_N not driven low\n") if ($gpio_lo_aref->[0] eq 0);
 
-  # Send JTAG devices to TEST LOGIC RESET state with a dummy write
-  write_dev_ir($self, 0, 'idcode', TEST_LOGIC_STATE);
+  # Send JTAG devices to TEST LOGIC RESET state
+  init_chain($self);
 
-  print "JTAGKEY initialized\n";
-
+  # Autodetect devices on scan chain
+  autodetect($self);
+  
   bless($self);
   return $self;
 }
 
 ###########################################################################################################
+# Initialized scan chain devices to TEST_LOGIC_STATE
+###########################################################################################################
+sub init_chain {
+  my $self = shift;
+
+  debug('init_chain', 1, "Initializing scan chain");
+
+  # Perform the USB operation
+  my $data_lw = pack('L', 0);
+  my $ftc_status = $self->{fh}->{write}->Call($self->{key}, IRSHIFT, 2, $data_lw, $ftdi_buffer_size, TEST_LOGIC_STATE);
+
+}
+
+###########################################################################################################
+# Autodetect the IDCODEs of the devices on the chain and assign info
+###########################################################################################################
+sub autodetect {
+  my $self       = shift;
+  
+  # Allocate memory
+  my $rbuffer_lw = ' 'x$ftdi_buffer_size; # allocate memory for read string
+  my $nbytes_lw  = ' 'x4;                 # allocate memory for number of bytes read
+
+  my $idcode = '';
+  my $dev = 0;
+  my @idcodes = ();
+
+  debug('autodetect', 1, "Autodetecting devices on scan chain");
+  
+  # Read IDCODEs, up to a max of 10 (this is arbitrary), until all zeroes are received
+  while ($idcode ne '0'x32 and $dev < 10) {
+    # Shift 32 bits through data registers, be sure to end in the PAUSE-DR state.  If we return to the RUN-TEST-IDLE state
+    # then each device will reload its IDCODE data register.
+    my $ftc_status = $self->{fh}->{read}->Call($self->{key}, DRSHIFT, 32, $rbuffer_lw, $nbytes_lw, PAUSE_TEST_DATA_REGISTER_STATE);
+
+    # Check return status
+    die(debug('autodetect', 0, sprintf("Unable to read via JTAGkey : %s",  $ftc_status_type_aref->[$ftc_status]))) if ($ftc_status);
+
+    # Unpack long words into binary string
+    $idcode = sprintf("%032b", unpack('L', $rbuffer_lw));
+
+    # Add current IDCODE to array of IDCODEs
+    push(@idcodes, $idcode) if $idcode ne '0'x32;
+    debug('autodetect', 2, "Read IDCODE = $idcode");
+    
+    $dev++;
+  }
+
+  # Assign device information and store in object.  The last idcode pushed onto the array is the first one in the chain, which
+  # is defined here as device 0.
+  $dev = 0;
+  while (my $idcode = pop(@idcodes)) {
+    debug('autodetect', 2, sprintf("Looking up device information for IDCODE = %s", $idcode));
+    $self->{di}->[$dev] = idcode_lookup($idcode);
+    debug('autodetect', 1, sprintf("DEVICE %d : %s", $dev, $self->{di}->[$dev]->{name}));
+    $dev++;
+  }
+
+  return;
+}
+
+###########################################################################################################
 # Instruction register write
 # Usage: write_dev_ir($self, $deviceid, $instruction, [$endstate]);
-# Return: hex string of data written to selected device
+# Return: nothing
 ###########################################################################################################
 sub write_dev_ir {
   my $self       = shift;
   my $seldev     = shift;                        # scan chain position of device to write, beginning with 0
-  my $instruct   = shift;                        # instruction to write to selected device
+  my $selins     = shift;                        # instruction to write to selected device
   my $endstate   = shift;                        # state to leave device in
-
 
   # Find number of devices in scan chain
   my $nscdevs    = scalar(@{$self->{di}});
 
-  # Get the binary string for the data to be written to selected device
-  if (not defined $self->{di}->[$seldev]->{ircmds}->{$instruct}) {
-    die "ERROR: Instruction $instruct not defined for scan chain device $seldev\n";
-  }
-  my $seldata = $self->{di}->[$seldev]->{ircmds}->{$instruct};
+  # Construct full binary string to be shifted by padding the non-selected device data with the BYPASS command
   my $data = '';
-
-  # Construct full binary string by padding the non-selected device data with the BYPASS command
   foreach my $dev (0..$nscdevs-1) {
+    my $instruction;
     if ($dev eq $seldev) {
-      $data .= $seldata;
+      $instruction = $selins;
     } else {
-      if (not defined $self->{di}->[$dev]->{ircmds}->{'bypass'}) {
-        die "ERROR: Instruction bypass not defined for scan chain device $dev\n";
-      }
-      $data .= $self->{di}->[$dev]->{ircmds}->{'bypass'};
+      $instruction = 'bypass';
     }
+    
+    if (not defined $self->{di}->[$dev]->{ircmds}->{$instruction}) {
+      die(debug('write_dev_ir', 0, "Instruction $instruction not defined for scan chain device $dev"));
+    }
+    my $instruct0b = $self->{di}->[$dev]->{ircmds}->{$instruction};
+    $data .= $instruct0b;
+    debug('write_dev_ir', 2, sprintf("Writing %s (0b%s) to device %d", uc($instruction), $instruct0b, $dev));
   }
 
   # Write to device
   write_dev($self, $seldev, IRSHIFT, $data, $endstate);
 
-  # Return data written to selected device as hex string
-  return sprintf("%x", oct('0b'.$seldata));
+  return;
 
 }
 
 ###########################################################################################################
 # Perform a data register write to JTAG scan chain device
 # Usage: write_dev_dr($self, $deviceid, $data_binstring, [$endstate]);
-# Return: hex string of data written to selected device
+# Return: nothing
 ###########################################################################################################
 sub write_dev_dr {
   my $self       = shift;
@@ -232,19 +286,18 @@ sub write_dev_dr {
   # in the chain before the one we're writing to (this would be represented by the $seldev of the device
   # we're writing to being nonzero), then pad the end of the write string with a 0 for each device in
   # the chain preceeding the one we're writing to.
-  my $data = $seldata . '0'x$seldev;
-
+  my $data = '0'x$seldev . $seldata;  
+  
   # Write to device
   write_dev($self, $seldev, DRSHIFT, $data, $endstate);
 
-  # Return data written to selected device as hex string
-  return sprintf("%08x", oct('0b'.$seldata));
+  return;
 }
 
 ###########################################################################################################
 # Write to JTAG device
 # Usage: write_dev($self, $deviceid, $type (IRSHIFT or DRSHIFT), $data_binstring, [$endstate]);
-# Return: hex string of data written to selected device
+# Return: nothing
 ###########################################################################################################
 sub write_dev {
   my $self     = shift;
@@ -257,17 +310,36 @@ sub write_dev {
   if (not $endstate) {
     $endstate = RUN_TEST_IDLE_STATE;
   }
+  # Determine number of bits to shift 
+  my $nbits = length($data);
+  
+  debug('write_dev', 2, sprintf("Performing %s of 0b$data ($nbits bits)", $type eq IRSHIFT? 'IRSHIFT' : 'DRSHIFT'));
 
-  #print "data to write to dev $seldev = $data\n";
+  # Convert data to long words, must be done 32 bits at a time
+  my $nlw = int((length($data)-1)/32) + 1;
+  my @words;
+  
+  debug('write_dev', 2, "Packing $nlw words");
+  for my $i (1..$nlw) {
+    my $datalen = length($data);
+    debug('write_dev', 2, sprintf("Data: %s (Length %s)", $data, $datalen));
+    my $offset  = ($datalen > 32)? -32 : 0;     
+    my $length  = ($datalen > 32)?  32 : $datalen;
+    my $word = substr($data,$offset,$length); # get rightmost 32 bits
+    debug('write_dev', 2, sprintf("Long Word $i (%d,%d): %s", $offset,$length, $word));
+    substr($data,$offset,$length) = '';
+    push(@words, oct('0b'.$word));
+  }
 
-  # convert data to long words
-  my $data_lw = pack('L*', oct('0b'.$data));
+  # convert binary data to long words
+  my $data_lw = pack('L'x$nlw, @words);
 
   # Perform the USB operation
-  my $ftc_status = $self->{fh}->{write}->Call($self->{key}, $type, length($data), $data_lw, $ftdi_buffer_size, $endstate);
+  my $ftc_status = $self->{fh}->{write}->Call($self->{key}, $type, $nbits, $data_lw, $ftdi_buffer_size, $endstate);
 
   # Check return status
-  die ("ERROR: unable to write\n") if ($ftc_status);
+  die(debug('write_dev', 0, "Unable to write")) if ($ftc_status);
+  ###############################################################################
 
   return;
 }
@@ -298,7 +370,7 @@ sub read_dev_dr {
 ###########################################################################################################
 sub read_dev {
   my $self       = shift;
-  my $seldev      = shift;                        # scan chain position, beginning with 0
+  my $seldev     = shift;                        # scan chain position, beginning with 0
   my $type       = shift;                        # IRSHIFT or DRSHIFT
   my $endstate   = shift;                        # state to leave device in, optional
 
@@ -318,7 +390,7 @@ sub read_dev {
     $nbits = 32; #assumes data register width of 32
   }
 
-  #printf("Reading %d bits from device %d\n", $nbits, $seldev);
+  debug('read_dev', 2, sprintf("Reading %d bits from device %d", $nbits, $seldev));
 
   # The first bit of data we want is sitting on TDO of the selected device.  If there are any devices in
   # the chain after the selected device, the data we want must get through those subsequent devices.
@@ -340,91 +412,30 @@ sub read_dev {
     $nbits_extra += $regsize;
   }
 
-  #printf("Reading %d extra bits from device %d\n", $nbits_extra, $seldev);
+  debug('read_dev', 2, sprintf("Reading %d extra bits from device %d", $nbits_extra, $seldev));
 
   # Perform the USB operation
   my $ftc_status = $self->{fh}->{read}->Call($self->{key}, DRSHIFT, $nbits + $nbits_extra, $rbuffer_lw, $nbytes_lw, $endstate);
 
   # Check return status
-  die(sprintf("ERROR : %s : %s\n", 'Unable to read via JTAGkey', $ftc_status_type_aref->[$ftc_status])) if ($ftc_status);
+  die(debug('read_dev', 0, sprintf("Unable to read via JTAGkey : %s", $ftc_status_type_aref->[$ftc_status]))) if ($ftc_status);
 
   # Calculate the number of long words to convert (each long word is 32 bytes)
   my $nlw = int(($nbits+$nbits_extra-1)/32) + 1;
-
+  
+  debug('read_dev', 2, "Converting $nlw long words");
+  
   # Unpack long words into binary string
   my $rdata_bstr = '';
   foreach my $d (unpack('L'x$nlw, $rbuffer_lw)) {
     $rdata_bstr = sprintf("%032b",$d) . $rdata_bstr;
   }
 
-  #printf("Binary read data: %s\n", $rdata_bstr);
+  debug('read_dev', 2, sprintf("Binary read data: %s", $rdata_bstr));
 
   return(sprintf "%08x", oct('0b'.substr($rdata_bstr, -1*($nbits+$nbits_extra), $nbits)));
 
 }
-
-
-
-###########################################################################################################
-# Read the IDCODEs of the devices on the scan chain and check them against the IDCODEs defined in the
-# JTAG object to verify that they are correct.
-###########################################################################################################
-sub verify_chain {
-  my $self       = shift;
-
-  # Allocate memory
-  my $rbuffer_lw = ' 'x$ftdi_buffer_size; # allocate memory for read string
-  my $nbytes_lw  = ' 'x4;                 # allocate memory for number of bytes read
-
-  # Send JTAG devices to TEST LOGIC RESET state with a dummy write
-  write_dev_ir($self, 0, 'idcode', TEST_LOGIC_STATE);
-
-  my $idcode = '';
-  my $dev = 0;
-  my @idcodes = ();
-
-  # Read IDCODEs, up to a max of 10 (this is arbitrary), until all zeroes are received
-  while ($idcode ne "00000000" and $dev < 10) {
-
-    # Shift 32 bits through data registers, be sure to end in the PAUSE-DR state.  If we return to the RUN-TEST-IDLE state
-    # then each device will reload its IDCODE data register.
-    my $ftc_status = $self->{fh}->{read}->Call($self->{key}, DRSHIFT, 32, $rbuffer_lw, $nbytes_lw, PAUSE_TEST_DATA_REGISTER_STATE);
-
-    # Check return status
-    die(sprintf("ERROR : %s : %s\n", 'Unable to read via JTAGkey', $ftc_status_type_aref->[$ftc_status])) if ($ftc_status);
-
-    # Unpack long words into hex string
-    $idcode = sprintf("%08x", unpack('L', $rbuffer_lw));
-
-    # Add current IDCODE to array of IDCODEs
-    push(@idcodes, $idcode) if $idcode ne "00000000";
-  }
-
-  # Reorder array of IDCODEs so that device 0 is the first one in the chain
-  @idcodes = reverse(@idcodes);
-
-  # Verify that IDCODEs read from the chain match the information in the chain description
-  # This could alternately be used to assign the device information in the chain description
-  foreach my $dev (0..scalar(@{$self->{di}})-1) {
-    my $exp_idcode_re = $self->{di}->[$dev]->{idregx};
-    my $rxd_idcode = $idcodes[$dev];
-
-    if ($rxd_idcode !~ /$exp_idcode_re/) {
-      die(sprintf("ERROR : IDCODE for device %d (%s) does not match defined regular expression (%s)", $dev, $rxd_idcode, $exp_idcode_re));
-    }
-  }
-
-  print "IDCODES verified\n";
-  foreach my $dev (0..scalar(@{$self->{di}})-1) {
-    printf("DEVICE %d : %s\n", $dev, $self->{di}->[$dev]->{name});
-  }
-
-  # Send JTAG devices to TEST LOGIC RESET state with a dummy write
-  write_dev_ir($self, 0, 'idcode', TEST_LOGIC_STATE);
-
-  return;
-}
-
 
 ###########################################################################################################
 # Generate $nclks clock pulses
@@ -434,10 +445,88 @@ sub genclks {
   my $nclks = shift;
 
   my $ftc_status = $self->{fh}->{gen_clks}->Call($self->{key}, $nclks);
-  die("Unable to generate clocks\n") if ($ftc_status);
+  die('genclks', 0, "Unable to generate clocks") if ($ftc_status);
   return;
 }
 
+###########################################################################################################
+# IDCODE LOOKUP
+###########################################################################################################
+sub idcode_lookup {
+  my $idcode0b = shift;
+  
+  my $bsdl_info_href;
+  
+  $bsdl_info_href->{'....0001010000101000000010010011'} =  {name   => 'XC3S1000_FT256',
+                                                            ircmds => {extest    => '000000', #
+                                                                       sample    => '000001', #
+                                                                       user1     => '000010', # -- Not available until after configuration
+                                                                       user2     => '000011', # -- Not available until after configuration
+                                                                       cfg_out   => '000100', # -- Not available during configuration with another mode.
+                                                                       cfg_in    => '000101', # -- Not available during configuration with another mode.
+                                                                       intest    => '000111', #
+                                                                       usercode  => '001000', #
+                                                                       idcode    => '001001', #
+                                                                       highz     => '001010', #
+                                                                       jprogram  => '001011', # -- Not available during configuration with another mode.
+                                                                       jstart    => '001100', # -- Not available during configuration with another mode.
+                                                                       jshutdown => '001101', # -- Not available during configuration with another mode.
+                                                                       bypass    => '111111'  #
+                                                                      }};
+  
+  $bsdl_info_href->{'....0101000001000110000010010011'} =  {name   => 'XCF04S_VO20',
+                                                            ircmds => {bypass   => '11111111',
+                                                                       sample   => '00000001',
+                                                                       preload  => '00000001',
+                                                                       extest   => '00000000',
+                                                                       idcode   => '11111110',
+                                                                       usercode => '11111101',
+                                                                       highz    => '11111100',
+                                                                       clamp    => '11111010',
+                                                                       config   => '11101110'}};
+
+  $bsdl_info_href->{'....0001110000101110000010010011'} =  {name   => 'XC3S1200E_FT256',
+                                                            ircmds => {extest		     => '001111', #
+	                                                                     sample		     => '000001', #
+	                                                                     user1		     => '000010', # Not available until after configuration
+	                                                                     user2		     => '000011', # Not available until after configuration
+	                                                                     cfg_out		   => '000100', # Not available during configuration with another mode.
+	                                                                     cfg_in		     => '000101', # Not available during configuration with another mode.
+	                                                                     intest		     => '000111', #
+	                                                                     usercode	     => '001000', #
+	                                                                     idcode		     => '001001', #
+	                                                                     highz		     => '001010', #
+	                                                                     jprogram	     => '001011', # Not available during configuration with another mode.
+	                                                                     jstart		     => '001100', # Not available during configuration with another mode.
+	                                                                     jshutdown	   => '001101', # Not available during configuration with another mode.
+	                                                                     bypass		     => '111111', #
+	                                                                     isc_enable	 	 => '010000', #
+	                                                                     isc_program	 => '010001', #
+	                                                                     isc_noop		   => '010100', #
+	                                                                     isc_read		   => '010101', #
+	                                                                     isc_disable	 => '010110'}};
+
+                                                                                     
+  foreach my $key (keys %$bsdl_info_href) {
+    if ($idcode0b =~ m/$key/) {
+      return $bsdl_info_href->{$key};
+    }
+  }
+  die(debug('idcode_lookup', 0, "No IDCODE match for $idcode0b found"));
+}
+
+###########################################################################################################
+# PRINT DEBUGGING INFORMATION
+###########################################################################################################
+sub debug {
+  my $sub = shift;
+  my $print_level = shift;
+  my $message = shift;
+  
+  if ($DEBUG >= $print_level) {
+    printf("[%s][%-12.12s] %s\n", 'FTCJTAG', uc($sub), $message);
+  }
+} 
 1;
 __END__
 # Below is stub documentation for your module. You'd better edit it!
@@ -451,8 +540,8 @@ using the FTDI FTCJTAG driver.
 
   use Device::Jtag::USB::FTCJTAG;
   my $jtag = Device::Jtag::USB::FTCJTAG->new();
-  $jtag->write_dev_ir(0, 'user1');
-  $jtag->write_dev_dr(0, $string_of_bits);
+  $jtag->write_dev_ir($device_num, $instruction);
+  $jtag->write_dev_dr($device_num, $data);
 
 =head1 DESCRIPTION
 
@@ -476,29 +565,13 @@ None by default.
 
 =item new()
 
-Creates the object.  After creating the object, the
-device(s) on the JTAG scan chain must be defined.  This is done by assigning
-to the 'di' (device info) hash key of the variable returned by the constructor.
+Creates the JTAGUSB object.  This routine initializes the JTAGKey and then autodetects
+the device(s) on the JTAG scan chain.  Currently only the following devices are defined, 
+others must be added to the idcode_lookup subroutine manually.
+      
+Currently supported devices: XC3S1000_FT256, XC3S1200E_FT256, XCF04S_V020.
 
-For example, if the JTAG scan chain consists of a XC3S1200E FPGA followed by
-a XCF04S Flash PROM, the chain is defined as follows:
-
-  my $jtag = Device::Jtag::USB::FTCJTAG->new();
-  $jtag->{di} = [                        # define device information for devices on scan chain
-    {name   => 'XC3S1200E FPGA',         # device 0 nickname
-     idregx => '^.1c2e093',              # device 0 idcode reg expression
-     ircmds => {idcode => '001001',      # device 0 instructions
-                user1  => '000010',
-                user2  => '000011',
-                bypass => '111111'}},
-
-    {name   => 'XCF0XS Platform Flash',  # device 1 nickname
-     idregx => '^.504.093',              # device 1 idcode reg expression
-     ircmds => {idcode => '11111110',    # device 1 instructions
-                bypass => '11111111'}}
-  ];
-
-The values for idregx and the instruction register commands are defined in
+The values for the IDCODE and the instruction register commands are defined in
 the target device's BSDL file.  These are typically available for download
 from the manufacturer's website.  For BSDL models from Xilinx, visit
 L<http://www.xilinx.com/xlnx/xil_sw_updates_home.jsp#BSDL Models>.  A regular
@@ -510,11 +583,6 @@ will vary based upon package type, etc.
 =head2 METHODS
 
 =over 4
-
-=item verify_chain()
-
-Read the IDCODEs of the devices on the scan chain and check them against the IDCODEs defined in the
-JTAG object to verify that they are correct.
 
 =item write_dev_ir(DEVICE, INSTRUCTION, [ENDSTATE])
 
@@ -556,17 +624,25 @@ Add autodetection of scan chain devices and auto-assignment of IDCODE value and 
 
 =over
 
+=item * 0.06  Sun June 19 2007
+Fixed bug with writing to data register of any device not located at scan chain position 1.
+Added debugging report levels 0-2.
+Added auto-detection of scan chain devices with auto-assignment of name and instruction register codes.
+
+=item * 0.05  Sun May 27 2007
+Removed Perl version requirement... trying to achieve success with PPM distribution.
+
 =item * 0.04  Sun May 27 2007
-Changed to .tar.gz archive type.
+Changed to .tar.gz archive type... trying to achieve success with PPM distribution.
 
 =item * 0.03  Fri May 25 2007
-Fixed prereqs in Makefile.PL
+Fixed prereqs in Makefile.PL... trying to achieve success with PPM distribution.
 
 =item * 0.02  Sun May 21 2007
-Removed autoloader from FTCJTAG.pm file
+Removed autoloader from FTCJTAG.pm file... trying to achieve success with PPM distribution.
 
 =item * 0.01  Sun May 20 2007
-Original version. By default, assumes devices on JTAG scan chain are (0) Xilinx XC3S1200E FPGA and (1) Xilinx XCF04S Flash PROM.
+Original version.
 
 =back
 
