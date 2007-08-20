@@ -1,4 +1,4 @@
-Device-Jtag-USB-FTCJTAG version 0.06
+Device-Jtag-USB-FTCJTAG version 0.10
 ====================================
 
 Device::Jtag::USB::FTCJTAG - Perl extension for communicating with JTAG devices
@@ -17,7 +17,8 @@ DEPENDENCIES
 
 This module requires these other modules and libraries:
 
-Win32::API
+Win32::API 0.46
+Bit::Vector 6.4
 
 COPYRIGHT AND LICENCE
 

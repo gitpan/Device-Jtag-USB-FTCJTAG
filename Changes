@@ -17,6 +17,11 @@ Revision history for Perl extension Device::Jtag::USB::FTCJTAG.
     - commented out "use 5.008008" from Makefile.PL and FTCJTAG.pm
 
 0.06  June 19 2007
-Fixed bug with writing to data register of any device not located at scan chain position 1.
-Added debugging report levels 0-2.
-Added auto-detection of scan chain devices with auto-assignment of name and instruction register codes.
+    - Fixed bug with writing to data register of any device not located at scan chain position 1.
+    - Added debugging report levels 0-2.
+    - Added auto-detection of scan chain devices with auto-assignment of name and instruction register codes.
+
+0.10  Aug 20, 2007
+    - Incorporated Bit::Vector module to allow JTAG reads/writes of arbitary length.
+    - Modified function calls to take a single hash reference parameter, thus v0.10 is not compatible with previous FTCJTAG.pm versions.
+    
