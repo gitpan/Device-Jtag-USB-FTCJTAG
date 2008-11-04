@@ -25,7 +25,7 @@ our @EXPORT = qw(
 
 );
 
-our $VERSION = '0.10';
+our $VERSION = '0.11';
 
 
 # Preloaded methods go here.
@@ -418,12 +418,30 @@ sub read_dev_dr {
 
 ###########################################################################################################
 # IDCODE LOOKUP
+# This information is lifted from Xilinx BSDL files
 ###########################################################################################################
 sub idcode_lookup {
   my $idcode0b = shift;
 
   my $bsdl_info_href;
 
+  $bsdl_info_href->{'....0001010000011100000010010011'} =  {name   => 'XC3S400_FT256',
+                                                            ircmds => {extest    => '000000', #
+                                                                       sample    => '000001', #
+                                                                       user1     => '000010', # -- Not available until after configuration
+                                                                       user2     => '000011', # -- Not available until after configuration
+                                                                       cfg_out   => '000100', # -- Not available during configuration with another mode.
+                                                                       cfg_in    => '000101', # -- Not available during configuration with another mode.
+                                                                       intest    => '000111', #
+                                                                       usercode  => '001000', #
+                                                                       idcode    => '001001', #
+                                                                       highz     => '001010', #
+                                                                       jprogram  => '001011', # -- Not available during configuration with another mode.
+                                                                       jstart    => '001100', # -- Not available during configuration with another mode.
+                                                                       jshutdown => '001101', # -- Not available during configuration with another mode.
+                                                                       bypass    => '111111'  #
+                                                                      }};
+  
   $bsdl_info_href->{'....0001010000101000000010010011'} =  {name   => 'XC3S1000_FT256',
                                                             ircmds => {extest    => '000000', #
                                                                        sample    => '000001', #
@@ -452,27 +470,50 @@ sub idcode_lookup {
                                                                        clamp    => '11111010',
                                                                        config   => '11101110'}};
 
-  $bsdl_info_href->{'....0001110000101110000010010011'} =  {name   => 'XC3S1200E_FT256',
+  $bsdl_info_href->{'....0001110000100010000010010011'} =  {name   => 'XC3S500E_FT256',
                                                             ircmds => {extest        => '001111', #
                                                                        sample        => '000001', #
+                                                                       preload       => '000001', # Not available until after configuration
                                                                        user1         => '000010', # Not available until after configuration
-                                                                       user2         => '000011', # Not available until after configuration
+                                                                       user2         => '000011', # Not available during configuration with another mode.
                                                                        cfg_out       => '000100', # Not available during configuration with another mode.
-                                                                       cfg_in        => '000101', # Not available during configuration with another mode.
+                                                                       cfg_in        => '000101', #
                                                                        intest        => '000111', #
                                                                        usercode      => '001000', #
                                                                        idcode        => '001001', #
-                                                                       highz         => '001010', #
+                                                                       highz         => '001010', # Not available during configuration with another mode.
                                                                        jprogram      => '001011', # Not available during configuration with another mode.
                                                                        jstart        => '001100', # Not available during configuration with another mode.
-                                                                       jshutdown     => '001101', # Not available during configuration with another mode.
+                                                                       jshutdown     => '001101', #
                                                                        bypass        => '111111', #
                                                                        isc_enable    => '010000', #
                                                                        isc_program   => '010001', #
                                                                        isc_noop      => '010100', #
-                                                                       isc_read      => '010101', #
-                                                                       isc_disable   => '010110'}};
-
+                                                                       isc_read      => '010101',
+                                                                       isc_disable   => '010110'}}; 
+                                                                       
+                                                                       
+  $bsdl_info_href->{'....0001110000101110000010010011'} =  {name   => 'XC3S1200E_FT256',
+                                                            ircmds => {EXTEST        => '001111', #
+                                                                       SAMPLE        => '000001', #
+                                                                       PRELOAD       => '000001', # Not available until after configuration
+                                                                       USER1         => '000010', # Not available until after configuration
+                                                                       USER2         => '000011', # Not available during configuration with another mode.
+                                                                       CFG_OUT       => '000100', # Not available during configuration with another mode.
+                                                                       CFG_IN        => '000101', #
+                                                                       INTEST        => '000111', #
+                                                                       USERCODE      => '001000', #
+                                                                       IDCODE        => '001001', #
+                                                                       HIGHZ         => '001010', # Not available during configuration with another mode.
+                                                                       JPROGRAM      => '001011', # Not available during configuration with another mode.
+                                                                       JSTART        => '001100', # Not available during configuration with another mode.
+                                                                       JSHUTDOWN     => '001101', #
+                                                                       BYPASS        => '111111', #
+                                                                       ISC_ENABLE    => '010000', #
+                                                                       ISC_PROGRAM   => '010001', #
+                                                                       ISC_NOOP      => '010100', #
+                                                                       ISC_READ      => '010101',
+                                                                       ISC_DISABLE   => '010110'}};
 
   foreach my $key (keys %$bsdl_info_href) {
     if ($idcode0b =~ m/$key/) {
@@ -593,6 +634,9 @@ Add auto-assignment of IDCODE value and INSTRUCTION definitions from BSDL files.
 =head1 HISTORY
 
 =over
+
+=item * 0.11 Nov 3, 2008
+Added support for Xilinx XC3S400 and XC3S500E devices.
 
 =item * 0.10 Aug 20, 2007
 Incorporated Bit::Vector module to allow JTAG reads/writes of arbitary length.

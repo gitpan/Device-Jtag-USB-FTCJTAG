@@ -24,4 +24,7 @@ Revision history for Perl extension Device::Jtag::USB::FTCJTAG.
 0.10  Aug 20, 2007
     - Incorporated Bit::Vector module to allow JTAG reads/writes of arbitary length.
     - Modified function calls to take a single hash reference parameter, thus v0.10 is not compatible with previous FTCJTAG.pm versions.
-    
+
+0.11  Nov 3, 2008
+    - Added support for Xilinx XC3S400 FT256 and XC3S500E FT256 devices.
+        
