@@ -27,4 +27,8 @@ Revision history for Perl extension Device::Jtag::USB::FTCJTAG.
 
 0.11  Nov 3, 2008
     - Added support for Xilinx XC3S400 FT256 and XC3S500E FT256 devices.
+    
+0.12  Feb 01, 2010
+    - No changes, just updating version to get latest package on Activestate PPM repositories because currently only version 0.10 has
+      been mirrored to those repositories.
         
